@@ -1,7 +1,10 @@
 import json
+from os import PathLike
 from typing import Any, Dict, Literal, Optional, Union
 
+import config_reading
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+
 
 # ===========================
 # 1. REQUEST MODEL (INPUT)
@@ -24,6 +27,10 @@ class HTTPRequest(BaseModel):
     # Config
     timeout: float = 30.0
     follow_redirects: bool = True  # Renamed from requests' 'allow_redirects' to match httpx
+    description: Optional[str] = Field(
+        default=None,
+        description="Optional description of the HTTP request."
+    )
 
     @model_validator(mode='after')
     def check_payload_exclusivity(self):
@@ -43,6 +50,32 @@ class HTTPRequest(BaseModel):
             self.json_payload = None
         else:
             self.json_payload = json.loads(value)
+
+    @staticmethod
+    def load(file: str | PathLike) -> "HTTPRequest":
+        from .jetbrains import load_models_from_http_file
+        if str(file).endswith('.http'):
+            models = load_models_from_http_file(file)
+            return models[0]
+        else:
+            config = config_reading.read_config(file)
+            return HTTPRequest(**config)
+
+    async def execute(self) -> "HTTPResponse":
+        from ..core.exec import async_request
+        return await async_request(self)
+
+    def to_jetbrains_http(self) -> str:
+        from .jetbrains import to_jetbrains_http
+        return to_jetbrains_http(self)
+
+    def substitute_variables(self, variables: Dict[str, str]) -> "HTTPRequest":
+        data = json.dumps(self.model_dump())
+        for key, value in variables.items():
+            if key not in data:
+                raise ValueError("Variable key not found in request data.")
+            data = data.replace(key, value)
+        return HTTPRequest(**json.loads(data))
 
 
 # ===========================

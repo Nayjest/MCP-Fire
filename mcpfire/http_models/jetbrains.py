@@ -3,6 +3,7 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import parse_qs, urlparse
 
+
 from .models import HTTPRequest
 
 
@@ -46,6 +47,7 @@ def _parse_http_block(block: str) -> Dict[str, Any]:
     url = ""
     headers = {}
     body_lines = []
+    description_lines = []
 
     is_body = False
     request_line_found = False
@@ -54,7 +56,12 @@ def _parse_http_block(block: str) -> Dict[str, Any]:
         stripped = line.strip()
 
         # Skip comments
-        if stripped.startswith('#') or stripped.startswith('//'):
+        if stripped.startswith('#'):
+            description_lines.append(line[1:].strip())
+            continue
+
+        if stripped.startswith('//'):
+            description_lines.append(line[2:].strip())
             continue
 
         # Detect Body start (empty line)
@@ -107,15 +114,20 @@ def _parse_http_block(block: str) -> Dict[str, Any]:
         "headers": headers,
         "params": params,
     }
-    if json_payload: result["json_payload"] = json_payload
-    if data_payload: result["data_payload"] = data_payload
+    if description_lines:
+        result["description"] = "\n".join(description_lines)
+    if json_payload:
+        result["json_payload"] = json_payload
+    if data_payload:
+        result["data_payload"] = data_payload
 
     return result
 
 
 def _extract_params(url: str):
     """Separates URL and Query Params."""
-    if '{{' in url: return url, {}  # Skip parsing if using variables
+    if '{{' in url:
+        return url, {}  # Skip parsing if using variables
 
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query)
@@ -124,3 +136,34 @@ def _extract_params(url: str):
 
     clean_url = url.split('?')[0]
     return clean_url, flat_params
+
+
+def to_jetbrains_http(model: HTTPRequest) -> str:
+    """
+    Serializes an HTTPRequest model to JetBrains .http file format.
+    """
+    description_lines: list[str] = [
+        f"# {line}" for line in model.description.splitlines()
+    ] if not model.description else []
+
+    # Request line
+    request_line = f"{model.method} {model.url}"
+    # Headers
+    headers: str = "\n".join(f"{k}: {v}" for k, v in model.headers.items())
+    # Body
+    body = ""
+    if model.json_payload is not None:
+        body = json.dumps(model.json_payload, ensure_ascii=False, indent=2)
+    elif model.data_payload is not None:
+        if isinstance(model.data_payload, (dict, list)):
+            body = json.dumps(model.data_payload, ensure_ascii=False, indent=2)
+        else:
+            body = str(model.data_payload)
+    # Combine parts
+    parts = description_lines + [request_line]
+    if headers:
+        parts.append(headers)
+    parts.append("")  # Empty line before body
+    if body:
+        parts.append(body)
+    return "\n".join(parts)

@@ -1,0 +1,7 @@
+### Pokemon data via GraphQL
+POST https://graphql-pokemon2.vercel.app/
+Content-Type: application/json
+
+{
+  "query": "{ pokemon(name: \"pikachu\") { id name classification types attacks { special { name type damage } } evolutions { id name } } }"
+}
